@@ -80,3 +80,12 @@ pub fn _path_to_c_string(path: &Path) -> Result<CString> {
     let path_str = path.to_string_lossy();
     CString::new(path_str.as_ref()).map_err(Into::into)
 }
+
+#[inline]
+pub(crate) fn _y_or_n(val: bool) -> &'static str {
+    if val {
+        "YES"
+    } else {
+        "NO"
+    }
+}

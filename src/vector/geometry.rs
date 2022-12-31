@@ -7,11 +7,12 @@ use std::ptr::null_mut;
 
 use libc::{c_char, c_double, c_int, c_void};
 
+use crate::cpl::CslStringList;
 use gdal_sys::{self, OGRErr, OGRGeometryH, OGRwkbGeometryType};
 
 use crate::errors::*;
 use crate::spatial_ref::{CoordTransform, SpatialRef};
-use crate::utils::{_last_null_pointer_err, _string};
+use crate::utils::{_last_null_pointer_err, _string, _y_or_n};
 
 /// OGR Geometry
 pub struct Geometry {
@@ -392,7 +393,7 @@ impl Geometry {
     ///
     /// Returns `Some(SpatialRef)`, or `None` if one isn't defined.
     ///
-    /// Refer: [OGR_G_GetSpatialReference](https://gdal.org/doxygen/ogr__api_8h.html#abc393e40282eec3801fb4a4abc9e25bf)
+    /// Refer [OGR_G_GetSpatialReference](https://gdal.org/doxygen/ogr__api_8h.html#abc393e40282eec3801fb4a4abc9e25bf)
     pub fn spatial_ref(&self) -> Option<SpatialRef> {
         let c_spatial_ref = unsafe { gdal_sys::OGR_G_GetSpatialReference(self.c_geometry()) };
 
@@ -412,6 +413,42 @@ impl Geometry {
     /// Create a copy of self as a `geo-types` geometry.
     pub fn to_geo(&self) -> Result<geo_types::Geometry<f64>> {
         self.try_into()
+    }
+
+    /// Attempts to make an invalid geometry valid without losing vertices.
+    ///
+    /// Already-valid geometries are cloned without further intervention.
+    ///
+    /// # Note
+    /// This function is built on the GEOS >= 3.8 library.
+    /// If GDAL is built with GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
+    pub fn make_valid(&self) -> Result<Geometry> {
+        let c_geom = unsafe { gdal_sys::OGR_G_MakeValid(self.c_geometry()) };
+
+        if c_geom.is_null() {
+            Err(_last_null_pointer_err("OGR_G_MakeValid"))
+        } else {
+            Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
+        }
+    }
+
+    /// Extended options form of [`Geometry::make_valid`].
+    /// Attempts to make an invalid geometry valid without losing vertices.
+    ///
+    /// Already-valid geometries are cloned without further intervention.
+    ///
+    /// # Note
+    /// This function is built on the GEOS >= 3.8 library.
+    /// If GDAL is built with GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
+    pub fn make_valid_ex(&self, opts: MakeValidOpts) -> Result<Geometry> {
+        let opts: CslStringList = opts.into();
+        let c_geom = unsafe { gdal_sys::OGR_G_MakeValidEx(self.c_geometry(), opts.as_ptr()) };
+
+        if c_geom.is_null() {
+            Err(_last_null_pointer_err("OGR_G_MakeValidEx"))
+        } else {
+            Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
+        }
     }
 }
 
@@ -477,9 +514,45 @@ impl Debug for GeometryRef<'_> {
     }
 }
 
+/// Invocation options for [`Geometry::make_valid_ex`].
+#[derive(Debug, Clone, Default)]
+pub enum MakeValidOpts {
+    /// Combines all rings into a set of node-ed lines and then extracts valid polygons from that "linework".
+    #[default]
+    Linework,
+    /// First makes all rings valid, then merges shells and subtracts holes from shells to generate valid result.
+    ///
+    /// Assumes holes and shells are correctly categorized.
+    Structure {
+        /// If `false`, collapses are converted to empty geometries.
+        /// If `true`, collapses are converted to a valid geometry of lower dimension.
+        keep_collapsed: bool,
+    },
+}
+
+impl From<MakeValidOpts> for CslStringList {
+    fn from(opts: MakeValidOpts) -> Self {
+        let mut retval = Self::new();
+        match opts {
+            MakeValidOpts::Linework => {
+                retval.set_name_value("METHOD", "LINEWORK").unwrap();
+            }
+            MakeValidOpts::Structure { keep_collapsed } => {
+                retval.set_name_value("METHOD", "STRUCTURE").unwrap();
+                retval
+                    .set_name_value("KEEP_COLLAPSED", _y_or_n(keep_collapsed))
+                    .unwrap();
+            }
+        }
+
+        retval
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::spatial_ref::SpatialRef;
+    use crate::vector::MakeValidOpts;
 
     use super::{geometry_type_to_name, Geometry};
 
@@ -589,5 +662,39 @@ mod tests {
         );
         // We don't care what it returns when passed an invalid value, just that it doesn't crash.
         geometry_type_to_name(4372521);
+    }
+
+    #[test]
+    pub fn test_make_valid() {
+        // Simple clone case.
+        let src = Geometry::from_wkt("POINT (0 0)").unwrap();
+        let dst = src.make_valid();
+        assert!(dst.is_ok());
+        assert_eq!(src, dst.unwrap());
+
+        // Un-repairable geometry case
+        let src = Geometry::from_wkt("LINESTRING (0 0)").unwrap();
+        let dst = src.make_valid();
+        assert!(dst.is_err());
+
+        // Repairable case (self-intersecting)
+        let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))").unwrap();
+        let dst = src.make_valid();
+        assert!(dst.is_ok());
+        let exp =
+            Geometry::from_wkt("MULTIPOLYGON (((10 0,0 0,5 5,10 0)),((10 10,5 5,0 10,10 10)))")
+                .unwrap();
+        assert_eq!(exp, dst.unwrap());
+
+        // Repairable case, but use extended options
+        let src =
+            Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))").unwrap();
+        let dst = src.make_valid_ex(MakeValidOpts::Structure {
+            keep_collapsed: false,
+        });
+        assert!(dst.is_ok());
+        let exp = Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
+            .unwrap();
+        assert_eq!(exp, dst.unwrap());
     }
 }

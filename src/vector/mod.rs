@@ -74,7 +74,7 @@ pub mod sql;
 pub use defn::{Defn, Field, FieldIterator};
 pub use feature::{field_type_to_name, Feature, FieldValue, FieldValueIterator};
 pub use gdal_sys::{OGRFieldType, OGRwkbGeometryType};
-pub use geometry::{geometry_type_to_name, Geometry};
+pub use geometry::{geometry_type_to_name, Geometry, MakeValidOpts};
 pub use layer::{
     FeatureIterator, FieldDefn, Layer, LayerAccess, LayerCaps, OwnedFeatureIterator, OwnedLayer,
 };

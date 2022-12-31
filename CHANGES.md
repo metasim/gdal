@@ -22,6 +22,10 @@
 
   - <https://github.com/georust/gdal/pull/355>
 
+- Implemented `Geometry::make_valid` and `Geometry::make_valid_ex`.
+  
+  - <https://github.com/georust/gdal/pull/356>
+
 ## 0.14
 
 - Added new content to `README.md` and the root docs.
