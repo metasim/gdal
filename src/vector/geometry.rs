@@ -432,6 +432,7 @@ impl Geometry {
         }
     }
 
+    #[cfg(all(major_ge_3, minor_ge_4))]
     /// Extended options form of [`Geometry::make_valid`].
     /// Attempts to make an invalid geometry valid without losing vertices.
     ///
@@ -551,10 +552,8 @@ impl From<MakeValidOpts> for CslStringList {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::spatial_ref::SpatialRef;
-    use crate::vector::MakeValidOpts;
-
-    use super::{geometry_type_to_name, Geometry};
 
     #[test]
     #[allow(clippy::float_cmp)]
@@ -681,20 +680,24 @@ mod tests {
         let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))").unwrap();
         let dst = src.make_valid();
         assert!(dst.is_ok());
-        let exp =
-            Geometry::from_wkt("MULTIPOLYGON (((10 0,0 0,5 5,10 0)),((10 10,5 5,0 10,10 10)))")
-                .unwrap();
-        assert_eq!(exp, dst.unwrap());
-
-        // Repairable case, but use extended options
-        let src =
-            Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))").unwrap();
-        let dst = src.make_valid_ex(MakeValidOpts::Structure {
-            keep_collapsed: false,
-        });
-        assert!(dst.is_ok());
-        let exp = Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
+        let exp = Geometry::from_wkt("MULTIPOLYGON (((0 0,5 5,10 0,0 0)),((5 5,0 10,10 10,5 5)))")
             .unwrap();
         assert_eq!(exp, dst.unwrap());
+
+        #[cfg(all(major_ge_3, minor_ge_4))]
+        {
+            // Repairable case, but use extended options
+            let src =
+                Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))")
+                    .unwrap();
+            let dst = src.make_valid_ex(MakeValidOpts::Structure {
+                keep_collapsed: false,
+            });
+            assert!(dst.is_ok());
+            let exp =
+                Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
+                    .unwrap();
+            assert_eq!(exp, dst.unwrap());
+        }
     }
 }
