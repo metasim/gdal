@@ -388,21 +388,18 @@ impl Geometry {
         unsafe { gdal_sys::OGR_G_Area(self.c_geometry()) }
     }
 
-    /// May or may not contain a reference to a SpatialRef: if not, it returns
-    /// an `Ok(None)`; if it does, it tries to build a SpatialRef. If that
-    /// succeeds, it returns an Ok(Some(SpatialRef)), otherwise, you get the
-    /// Err.
+    /// Get the spatial reference system for this geometry.
     ///
+    /// Returns `Some(SpatialRef)`, or `None` if one isn't defined.
+    ///
+    /// Refer: [OGR_G_GetSpatialReference](https://gdal.org/doxygen/ogr__api_8h.html#abc393e40282eec3801fb4a4abc9e25bf)
     pub fn spatial_ref(&self) -> Option<SpatialRef> {
         let c_spatial_ref = unsafe { gdal_sys::OGR_G_GetSpatialReference(self.c_geometry()) };
 
         if c_spatial_ref.is_null() {
             None
         } else {
-            match unsafe { SpatialRef::from_c_obj(c_spatial_ref) } {
-                Ok(sr) => Some(sr),
-                Err(_) => None,
-            }
+            unsafe { SpatialRef::from_c_obj(c_spatial_ref) }.ok()
         }
     }
 
