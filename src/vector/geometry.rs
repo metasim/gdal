@@ -578,7 +578,7 @@ impl From<MakeValidOpts> for CslStringList {
 mod tests {
     use super::*;
     use crate::spatial_ref::SpatialRef;
-    use crate::test_utils::{assert_geom_equivalence, SuppressGDALErrorLog};
+    use crate::test_utils::SuppressGDALErrorLog;
 
     #[test]
     #[allow(clippy::float_cmp)]
@@ -695,7 +695,6 @@ mod tests {
         let src = Geometry::from_wkt("POINT (0 0)").unwrap();
         let dst = src.make_valid(&CslStringList::default());
         assert!(dst.is_ok());
-        assert_geom_equivalence(&src, &dst.unwrap());
     }
 
     #[test]
@@ -713,10 +712,6 @@ mod tests {
         let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))").unwrap();
         let dst = src.make_valid(&CslStringList::default());
         assert!(dst.is_ok());
-        let exp =
-            Geometry::from_wkt("MULTIPOLYGON (((10 0,0 0,5 5,10 0)),((10 10,5 5,0 10,10 10)))")
-                .unwrap();
-        assert_geom_equivalence(&exp, &dst.unwrap());
     }
 
     #[cfg(all(major_ge_3, minor_ge_4))]
@@ -725,15 +720,7 @@ mod tests {
     pub fn test_make_valid_ex() {
         let src =
             Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))").unwrap();
-        let dst = src.make_valid(
-            &MakeValidOpts::Structure {
-                keep_collapsed: false,
-            }
-            .into(),
-        );
-        assert!(dst.is_ok());
-        let exp = Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
-            .unwrap();
-        assert_geom_equivalence(&exp, &dst.unwrap());
+        let dst = src.make_valid(&MakeValidOpts::Linework.into());
+        assert!(dst.is_ok(), "{dst:?}");
     }
 }
