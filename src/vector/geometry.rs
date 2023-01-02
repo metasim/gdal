@@ -462,6 +462,7 @@ impl Geometry {
     /// # Note
     /// This function is built on the GEOS >= 3.8 library.
     /// If GDAL is built with GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
+    #[cfg_attr(not(all(major_ge_3, minor_ge_4)), allow(unused_variables))]
     pub fn make_valid(&self, opts: &CslStringList) -> Result<Geometry> {
         #[cfg(all(major_ge_3, minor_ge_4))]
         let c_geom = unsafe { gdal_sys::OGR_G_MakeValidEx(self.c_geometry(), opts.as_ptr()) };
