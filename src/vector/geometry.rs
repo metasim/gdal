@@ -225,11 +225,16 @@ impl Geometry {
         unsafe { gdal_sys::OGR_G_AddPoint_2D(self.c_geometry(), x as c_double, y as c_double) };
     }
 
-    pub fn get_point(&self, i: i32) -> (f64, f64, f64) {
+    /// Get point coordinates from a line string or a point geometry.
+    ///
+    /// `index` is the line string vertex index, from 0 to `point_count()-1`, or `0` when a point.
+    ///
+    /// Refer: [`OGR_G_GetPoint`](https://gdal.org/api/vector_c_api.html#_CPPv414OGR_G_GetPoint12OGRGeometryHiPdPdPd)
+    pub fn get_point(&self, index: i32) -> (f64, f64, f64) {
         let mut x: c_double = 0.;
         let mut y: c_double = 0.;
         let mut z: c_double = 0.;
-        unsafe { gdal_sys::OGR_G_GetPoint(self.c_geometry(), i, &mut x, &mut y, &mut z) };
+        unsafe { gdal_sys::OGR_G_GetPoint(self.c_geometry(), index, &mut x, &mut y, &mut z) };
         (x, y, z)
     }
 
@@ -293,12 +298,47 @@ impl Geometry {
         Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
     }
 
+    /// Get the geometry type ordinal
+    ///
+    /// Refer: [OGR_G_GetGeometryType](https://gdal.org/api/vector_c_api.html#_CPPv421OGR_G_GetGeometryType12OGRGeometryH)
     pub fn geometry_type(&self) -> OGRwkbGeometryType::Type {
         unsafe { gdal_sys::OGR_G_GetGeometryType(self.c_geometry()) }
     }
 
+    /// Get the WKT name for the type of this geometry.
+    ///
+    /// Refer: [`OGR_G_GetGeometryName`](https://gdal.org/api/vector_c_api.html#_CPPv421OGR_G_GetGeometryName12OGRGeometryH)
+    pub fn geometry_name(&self) -> String {
+        // Note: C API makes no statements about this possibly returning null.
+        // So we don't have to result wrap this,
+        let c_str = unsafe { gdal_sys::OGR_G_GetGeometryName(self.c_geometry()) };
+        if c_str.is_null() {
+            "".into()
+        } else {
+            _string(c_str)
+        }
+    }
+
+    /// Get the number of elements in a geometry, or number of geometries in container.
+    ///
+    /// Only geometries of type `wkbPolygon`, `wkbMultiPoint`, `wkbMultiLineString`, `wkbMultiPolygon`
+    /// or `wkbGeometryCollection` may return a non-zero value. Other geometry types will return 0.
+    ///
+    /// For a polygon, the returned number is the number of rings (exterior ring + interior rings).
+    ///
+    /// Refer: [`OGR_G_GetGeometryCount`](https://gdal.org/api/vector_c_api.html#_CPPv422OGR_G_GetGeometryCount12OGRGeometryH)
     pub fn geometry_count(&self) -> usize {
         let cnt = unsafe { gdal_sys::OGR_G_GetGeometryCount(self.c_geometry()) };
+        cnt as usize
+    }
+
+    /// Get the number of points from a Point or a LineString/LinearRing geometry.
+    ///
+    /// Only `wkbPoint` or `wkbLineString` may return a non-zero value. Other geometry types will return 0.
+    ///
+    /// Refer: [`OGR_G_GetPointCount`](https://gdal.org/api/vector_c_api.html#_CPPv419OGR_G_GetPointCount12OGRGeometryH)
+    pub fn point_count(&self) -> usize {
+        let cnt = unsafe { gdal_sys::OGR_G_GetPointCount(self.c_geometry()) };
         cnt as usize
     }
 
@@ -554,10 +594,12 @@ impl From<MakeValidOpts> for CslStringList {
 mod tests {
     use super::*;
     use crate::spatial_ref::SpatialRef;
+    use crate::test_utils::{assert_geom_equivalence, SuppressGDALErrorLog};
 
     #[test]
     #[allow(clippy::float_cmp)]
     pub fn test_area() {
+        let _nolog = SuppressGDALErrorLog::new();
         let geom = Geometry::empty(::gdal_sys::OGRwkbGeometryType::wkbMultiPolygon).unwrap();
         assert_eq!(geom.area(), 0.0);
 
@@ -663,41 +705,48 @@ mod tests {
         geometry_type_to_name(4372521);
     }
 
-    #[test]
-    pub fn test_make_valid() {
-        // Simple clone case.
+    pub fn test_make_valid_clone() {
         let src = Geometry::from_wkt("POINT (0 0)").unwrap();
         let dst = src.make_valid();
         assert!(dst.is_ok());
-        assert_eq!(src, dst.unwrap());
+        assert_geom_equivalence(&src, &dst.unwrap());
+    }
 
-        // Un-repairable geometry case
+    #[test]
+    /// Un-repairable geometry case
+    #[test]
+    /// Simple clone case.
+    pub fn test_make_valid_invalid() {
+        let _nolog = SuppressGDALErrorLog::new();
         let src = Geometry::from_wkt("LINESTRING (0 0)").unwrap();
         let dst = src.make_valid();
         assert!(dst.is_err());
+    }
 
-        // Repairable case (self-intersecting)
+    #[test]
+    /// Repairable case (self-intersecting)
+    pub fn test_make_valid_repairable() {
         let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))").unwrap();
         let dst = src.make_valid();
         assert!(dst.is_ok());
-        let exp = Geometry::from_wkt("MULTIPOLYGON (((0 0,5 5,10 0,0 0)),((5 5,0 10,10 10,5 5)))")
-            .unwrap();
-        assert_eq!(exp, dst.unwrap());
+        let exp =
+            Geometry::from_wkt("MULTIPOLYGON (((10 0,0 0,5 5,10 0)),((10 10,5 5,0 10,10 10)))")
+                .unwrap();
+        assert_geom_equivalence(&exp, &dst.unwrap());
+    }
 
-        #[cfg(all(major_ge_3, minor_ge_4))]
-        {
-            // Repairable case, but use extended options
-            let src =
-                Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))")
-                    .unwrap();
-            let dst = src.make_valid_ex(MakeValidOpts::Structure {
-                keep_collapsed: false,
-            });
-            assert!(dst.is_ok());
-            let exp =
-                Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
-                    .unwrap();
-            assert_eq!(exp, dst.unwrap());
-        }
+    #[cfg(all(major_ge_3, minor_ge_4))]
+    #[test]
+    /// Repairable case, but use extended options
+    pub fn test_make_valid_ex() {
+        let src =
+            Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))").unwrap();
+        let dst = src.make_valid_ex(MakeValidOpts::Structure {
+            keep_collapsed: false,
+        });
+        assert!(dst.is_ok());
+        let exp = Geometry::from_wkt("POLYGON ((0 10,10 10,10.0 7.5,5 5,10.0 2.5,10 0,0 0,0 10))")
+            .unwrap();
+        assert_geom_equivalence(&exp, &dst.unwrap());
     }
 }

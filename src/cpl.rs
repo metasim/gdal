@@ -13,7 +13,9 @@ use libc::c_char;
 use crate::errors::{GdalError, Result};
 use crate::utils::{_string, _string_tuple};
 
-/// Wraps a [`gdal_sys::CSLConstList`]  (a.k.a. `char **papszStrList`)
+/// Wraps a [`gdal_sys::CSLConstList`]  (a.k.a. `char **papszStrList`). This data structure
+/// (a null-terminated array of null-terminated strings) is used throughout GDAL to pass
+/// `KEY=VALUE`-formatted options to various functions.
 ///
 /// See the [`CSL*` GDAL functions](https://gdal.org/api/cpl.html#cpl-string-h) for more details.
 pub struct CslStringList {
@@ -21,6 +23,7 @@ pub struct CslStringList {
 }
 
 impl CslStringList {
+    /// Creates an empty GDAL string list.
     pub fn new() -> Self {
         Self {
             list_ptr: ptr::null_mut(),
@@ -104,6 +107,7 @@ impl Default for CslStringList {
     }
 }
 
+/// State for iterator over [`CslStringList`] entries.
 pub struct CslStringListIterator<'a> {
     list: &'a CslStringList,
     idx: usize,
