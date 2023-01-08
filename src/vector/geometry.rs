@@ -459,7 +459,8 @@ impl Geometry {
     ///
     /// Already-valid geometries are cloned without further intervention.
     ///
-    /// Extended options are available if GDAL is built with GEOS >= 3.8, defined as follows:
+    /// Extended options are available via [`CslStringList`] if GDAL is built with GEOS >= 3.8.
+    /// They are defined as follows:
     ///
     /// * `METHOD=LINEWORK`: Combines all rings into a set of node-ed lines and then extracts
     ///    valid polygons from that "linework".
@@ -472,6 +473,17 @@ impl Geometry {
     /// When GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
     ///
     /// Refer: [OGR_G_MakeValidEx](https://gdal.org/api/vector_c_api.html#_CPPv417OGR_G_MakeValidEx12OGRGeometryH12CSLConstList)
+    ///
+    /// # Example
+    /// ```rust, no_run
+    /// use gdal::vector::Geometry;
+    /// # fn main() -> gdal::errors::Result<()> {
+    /// let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))")?;
+    /// let dst = src.make_valid(())?;
+    /// assert_eq!("MULTIPOLYGON (((10 0,0 0,5 5,10 0)),((10 10,5 5,0 10,10 10)))", dst.wkt()?);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn make_valid<O: Into<CslStringList>>(&self, opts: O) -> Result<Geometry> {
         let opts = opts.into();
 
