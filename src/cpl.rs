@@ -174,7 +174,7 @@ impl From<()> for CslStringList {
     }
 }
 
-/// Creates a [`CslStringList`] from a slice of _key_/_value_ pairs.
+/// Creates a [`CslStringList`] from a slice of _key_/_value_ tuples.
 impl<const N: usize> From<&[(&str, &str); N]> for CslStringList {
     fn from(pairs: &[(&str, &str); N]) -> Self {
         let mut result = Self::default();

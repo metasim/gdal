@@ -473,21 +473,29 @@ impl Geometry {
     ///
     /// Refer: [OGR_G_MakeValidEx](https://gdal.org/api/vector_c_api.html#_CPPv417OGR_G_MakeValidEx12OGRGeometryH12CSLConstList)
     pub fn make_valid<O: Into<CslStringList>>(&self, opts: O) -> Result<Geometry> {
-        fn inner(geo: &Geometry, opts: CslStringList) -> Result<OGRGeometryH> {
+        let opts = opts.into();
+
+        fn inner(geom: &Geometry, opts: CslStringList) -> Result<Geometry> {
             #[cfg(all(major_ge_3, minor_ge_4))]
-            let c_geom = unsafe { gdal_sys::OGR_G_MakeValidEx(geo.c_geometry(), opts.as_ptr()) };
+            let c_geom = unsafe { gdal_sys::OGR_G_MakeValidEx(geom.c_geometry(), opts.as_ptr()) };
+
             #[cfg(not(all(major_ge_3, minor_ge_4)))]
-            let c_geom = unsafe { gdal_sys::OGR_G_MakeValid(geo.c_geometry()) };
-            Ok(c_geom)
-        }
+            let c_geom = {
+                if !opts.is_empty() {
+                    return Err(GdalError::BadArgument(
+                        "Options to make_valid require GDAL >= 3.4".into(),
+                    ));
+                }
+                unsafe { gdal_sys::OGR_G_MakeValid(geom.c_geometry()) }
+            };
 
-        let c_geom = inner(self, opts.into())?;
-
-        if c_geom.is_null() {
-            Err(_last_null_pointer_err("OGR_G_MakeValid"))
-        } else {
-            Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
+            if c_geom.is_null() {
+                Err(_last_null_pointer_err("OGR_G_MakeValid"))
+            } else {
+                Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
+            }
         }
+        inner(self, opts)
     }
 }
 

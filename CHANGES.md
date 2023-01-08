@@ -22,7 +22,7 @@
 
   - <https://github.com/georust/gdal/pull/355>
 
-- Implemented `Geometry::make_valid` and `Geometry::make_valid_ex`.
+- Exposed various functions on `Geometry`:  `make_valid`, `geometry_name`, and `point_count`. 
   
   - <https://github.com/georust/gdal/pull/356>
 
