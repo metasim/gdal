@@ -12,7 +12,7 @@ use gdal_sys::{self, OGRErr, OGRGeometryH, OGRwkbGeometryType};
 
 use crate::errors::*;
 use crate::spatial_ref::{CoordTransform, SpatialRef};
-use crate::utils::{_last_null_pointer_err, _string, _y_or_n};
+use crate::utils::{_last_null_pointer_err, _string};
 
 /// OGR Geometry
 pub struct Geometry {
@@ -459,18 +459,31 @@ impl Geometry {
     ///
     /// Already-valid geometries are cloned without further intervention.
     ///
-    /// # Note
-    /// This function is built on the GEOS >= 3.8 library.
-    /// If GDAL is built with GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
+    /// Extended options are available if GDAL is built with GEOS >= 3.8, defined as follows:
+    ///
+    /// * `METHOD=LINEWORK`: Combines all rings into a set of node-ed lines and then extracts
+    ///    valid polygons from that "linework".
+    /// * `METHOD=STRUCTURE`: First makes all rings valid, then merges shells and subtracts holes
+    ///    from shells to generate valid result. Assumes holes and shells are correctly categorized.
+    /// * `KEEP_COLLAPSED=YES/NO`. Only for `METHOD=STRUCTURE`.
+    ///   - `NO` (default):  Collapses are converted to empty geometries
+    ///   - `YES`: collapses are converted to a valid geometry of lower dimension
+    ///
+    /// When GEOS < 3.8, this method will return `Ok(self.clone())` if it is valid, or `Err` if not.
+    ///
+    /// Refer: [OGR_G_MakeValidEx](https://gdal.org/api/vector_c_api.html#_CPPv417OGR_G_MakeValidEx12OGRGeometryH12CSLConstList)
     #[cfg_attr(not(all(major_ge_3, minor_ge_4)), allow(unused_variables))]
-    pub fn make_valid(&self, opts: &CslStringList) -> Result<Geometry> {
+    pub fn make_valid<O: Into<CslStringList>>(&self, opts: O) -> Result<Geometry> {
         #[cfg(all(major_ge_3, minor_ge_4))]
-        let c_geom = unsafe { gdal_sys::OGR_G_MakeValidEx(self.c_geometry(), opts.as_ptr()) };
+        let c_geom = {
+            let opts: CslStringList = opts.into();
+            unsafe { gdal_sys::OGR_G_MakeValidEx(self.c_geometry(), opts.as_ptr()) }
+        };
         #[cfg(not(all(major_ge_3, minor_ge_4)))]
         let c_geom = unsafe { gdal_sys::OGR_G_MakeValid(self.c_geometry()) };
 
         if c_geom.is_null() {
-            Err(_last_null_pointer_err("OGR_G_MakeValidEx"))
+            Err(_last_null_pointer_err("OGR_G_MakeValid"))
         } else {
             Ok(unsafe { Geometry::with_c_geometry(c_geom, true) })
         }
@@ -536,41 +549,6 @@ impl Deref for GeometryRef<'_> {
 impl Debug for GeometryRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.geom, f)
-    }
-}
-
-/// Utility for constructing [`CslStringList`] options for [`Geometry::make_valid`].
-#[derive(Debug, Clone, Default)]
-pub enum MakeValidOpts {
-    /// Combines all rings into a set of node-ed lines and then extracts valid polygons from that "linework".
-    #[default]
-    Linework,
-    /// First makes all rings valid, then merges shells and subtracts holes from shells to generate valid result.
-    ///
-    /// Assumes holes and shells are correctly categorized.
-    Structure {
-        /// If `false`, collapses are converted to empty geometries.
-        /// If `true`, collapses are converted to a valid geometry of lower dimension.
-        keep_collapsed: bool,
-    },
-}
-
-impl From<MakeValidOpts> for CslStringList {
-    fn from(opts: MakeValidOpts) -> Self {
-        let mut retval = Self::new();
-        match opts {
-            MakeValidOpts::Linework => {
-                retval.set_name_value("METHOD", "LINEWORK").unwrap();
-            }
-            MakeValidOpts::Structure { keep_collapsed } => {
-                retval.set_name_value("METHOD", "STRUCTURE").unwrap();
-                retval
-                    .set_name_value("KEEP_COLLAPSED", _y_or_n(keep_collapsed))
-                    .unwrap();
-            }
-        }
-
-        retval
     }
 }
 
@@ -693,7 +671,7 @@ mod tests {
     /// Simple clone case.
     pub fn test_make_valid_clone() {
         let src = Geometry::from_wkt("POINT (0 0)").unwrap();
-        let dst = src.make_valid(&CslStringList::default());
+        let dst = src.make_valid(());
         assert!(dst.is_ok());
     }
 
@@ -702,7 +680,7 @@ mod tests {
     pub fn test_make_valid_invalid() {
         let _nolog = SuppressGDALErrorLog::new();
         let src = Geometry::from_wkt("LINESTRING (0 0)").unwrap();
-        let dst = src.make_valid(&CslStringList::default());
+        let dst = src.make_valid(());
         assert!(dst.is_err());
     }
 
@@ -710,7 +688,7 @@ mod tests {
     /// Repairable case (self-intersecting)
     pub fn test_make_valid_repairable() {
         let src = Geometry::from_wkt("POLYGON ((0 0,10 10,0 10,10 0,0 0))").unwrap();
-        let dst = src.make_valid(&CslStringList::default());
+        let dst = src.make_valid(());
         assert!(dst.is_ok());
     }
 
@@ -720,7 +698,7 @@ mod tests {
     pub fn test_make_valid_ex() {
         let src =
             Geometry::from_wkt("POLYGON ((0 0,0 10,10 10,10 0,0 0),(5 5,15 10,15 0,5 5))").unwrap();
-        let dst = src.make_valid(&MakeValidOpts::Linework.into());
+        let dst = src.make_valid(&[("STRUCTURE", "LINEWORK")]);
         assert!(dst.is_ok(), "{dst:?}");
     }
 }

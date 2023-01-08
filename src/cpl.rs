@@ -7,7 +7,7 @@ use std::ffi::CString;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
-use gdal_sys::{CSLCount, CSLDestroy, CSLFetchNameValue, CSLSetNameValue};
+use gdal_sys::{CSLCount, CSLDestroy, CSLDuplicate, CSLFetchNameValue, CSLSetNameValue};
 use libc::c_char;
 
 use crate::errors::{GdalError, Result};
@@ -107,6 +107,13 @@ impl Default for CslStringList {
     }
 }
 
+impl Clone for CslStringList {
+    fn clone(&self) -> Self {
+        let list_ptr = unsafe { CSLDuplicate(self.list_ptr) };
+        Self { list_ptr }
+    }
+}
+
 /// State for iterator over [`CslStringList`] entries.
 pub struct CslStringListIterator<'a> {
     list: &'a CslStringList,
@@ -156,6 +163,25 @@ impl Debug for CslStringList {
             f.write_fmt(format_args!("{k}={v}\n"))?;
         }
         Ok(())
+    }
+}
+
+/// Convenience shorthand for specifying an empty `CslStringList` to functions accepting
+/// `Into<CslStringList>`.
+impl From<()> for CslStringList {
+    fn from(_: ()) -> Self {
+        CslStringList::default()
+    }
+}
+
+/// Creates a [`CslStringList`] from a slice of _key_/_value_ pairs.
+impl<const N: usize> From<&[(&str, &str); N]> for CslStringList {
+    fn from(pairs: &[(&str, &str); N]) -> Self {
+        let mut result = Self::default();
+        for (k, v) in pairs {
+            result.set_name_value(k, v).expect("valid key/value pair");
+        }
+        result
     }
 }
 
